@@ -1,14 +1,7 @@
 public class Main3 {
     public static void main(String[] args) {  
-        int dice = 1;
+        double price = 9.12345678;
 
-        while (dice <= 6) {
-        if (dice < 6) {
-            System.out.println("No Yatzy.");
-        } else {
-            System.out.println("Yatzy!");
-        }
-        dice = dice + 1;
-        }
+        System.out.println(price);
     }  
 }
