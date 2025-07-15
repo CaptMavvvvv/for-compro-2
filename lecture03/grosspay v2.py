@@ -11,7 +11,7 @@ def calcurate_triangle(width: int, length: int):
 
     area = width * length
 
-width, length = int(inp)
+width, length = int(inp )
 hour_worked, pay_rate = int(input('Enter the number of hours worked: ')), int(input("Enter the hourly gross pay rate: "))
 
 calcurate_grosspay(hour_worked, pay_rate) 
