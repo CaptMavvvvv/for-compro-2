@@ -1,1 +1,0 @@
-print(f'My age is {20.5} I have {3500.20:.2f} baht.')

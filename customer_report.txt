@@ -1,0 +1,18 @@
+============================================================
+                 CUSTOMER DIRECTORY REPORT
+============================================================
+Generated On: 2025-10-01 12:41:18
+Binary File: customers.bin | Size: 70 bytes
+------------------------------------------------------------
+SUMMARY STATISTICS:
+  - Total Records (In File): 3
+  - Active Records: 3
+  - Deleted/Free Space: 0
+------------------------------------------------------------
+ACTIVE RECORDS DETAIL:
+ID    | Name                           | Phone          
+-----------------------------------------------------------
+201   | Kasideth Samongkol             | 0955553145     
+202   | Supacha Charoensamrejkij       | 0953656729     
+203   | Kittipop Tuesombat             | 0911913075     
+============================================================
