@@ -1,4 +1,5 @@
 import struct
+from collections import defaultdict
 import os
 import datetime
 from typing import Dict, Any, List, Optional, Tuple
@@ -339,7 +340,7 @@ def get_user_choice(prompt: str, valid_choices: List[str]) -> str:
         print("❌ ตัวเลือกไม่ถูกต้อง กรุณาเลือกใหม่")
 
 def get_int_input(prompt: str) -> int:
-    """รับอินพุตเป็นจำนวนเต็ม (ID, Days)"""
+    # ฟังก์ชันจำลองสำหรับคำนวณวัน
     while True:
         try:
             return int(input(prompt).strip())
@@ -493,10 +494,11 @@ def run_rental_menu(manager: RentalManager, car_mgr: CarManager, cust_mgr: Custo
     while True:
         print("\n=== [3] จัดการสัญญาเช่า ===")
         print("A: สร้างสัญญา | V: ดูทั้งหมด | S: ค้นหาด้วย ID")
-        print("D: คืนรถ (Soft Delete) | R: สร้างรายงาน (.txt)")
+        print("D: คืนรถ (Soft Delete) | R: สร้างรายงานสรุป (.txt)")
+        print("L: สร้างรายงานรายละเอียดสัญญาเช่า (.txt)") 
         print("X: กลับสู่เมนูหลัก")
         
-        choice = get_user_choice(">> กรุณาเลือก: ", ['A', 'V', 'D', 'S', 'R', 'X'])
+        choice = get_user_choice(">> กรุณาเลือก: ", ['A', 'V', 'D', 'S', 'R', 'L', 'X'])
         
         if choice == 'A':
             print("\n-- สร้างสัญญาเช่า --")
@@ -559,9 +561,147 @@ def run_rental_menu(manager: RentalManager, car_mgr: CarManager, cust_mgr: Custo
                 [('ID', 5), ('CustomerID', 10), ('CarID', 7), ('StartDate', 10), ('Days', 5), ('TotalPrice', 12)], 
                 'rental_report.txt'
             )
+        
+        elif choice == 'L':
+            generate_rental_detail_report(manager, cust_mgr, car_mgr)
 
         elif choice == 'X':
             break
+
+import struct
+from collections import defaultdict
+import datetime
+import os
+from typing import Dict, Any, Tuple, Optional, List
+
+# --- ฟังก์ชัน Helper สำหรับการอ่านข้อมูลทั้งหมด (เหมือนเดิม) ---
+def _get_all_records_from_manager(manager):
+    records = []
+    manager.file.seek(0, os.SEEK_SET)
+    while True:
+        record_bytes = manager.file.read(manager.record_size)
+        if len(record_bytes) < manager.record_size: break
+        try:
+            records.append(manager._unpack_record(record_bytes))
+        except struct.error: continue 
+    return records
+
+def generate_detailed_summary_report(car_mgr: 'CarManager', cust_mgr: 'CustomerManager', rental_mgr: 'RentalManager', report_filename: str = 'detailed_summary_report.txt'):
+    """
+    สร้างรายงานสรุปละเอียด (Rental Detail + Statistics)
+    """
+    
+    # 1. รวบรวมข้อมูลและคำนวณสถิติ
+    all_car_records = _get_all_records_from_manager(car_mgr)
+    active_rentals = rental_mgr.get_all_records()
+    rented_car_ids = {rent['CarID'] for rent in active_rentals} 
+    
+    total_cars = len(all_car_records)
+    active_cars = [car for car in all_car_records if car['IsActive']]
+    deleted_cars = total_cars - len(active_cars)
+    currently_rented = len(rented_car_ids)
+    available_now = len(active_cars) - currently_rented
+    
+    rate_list = [car['DailyRate'] for car in active_cars]
+    min_rate = min(rate_list) if rate_list else 0.00
+    max_rate = max(rate_list) if rate_list else 0.00
+    avg_rate = sum(rate_list) / len(rate_list) if rate_list else 0.00
+    
+    model_count = defaultdict(int)
+    for car in active_cars:
+        brand = car['Model'].split(' ')[0] # ใช้คำแรกของ Model เป็น Brand
+        model_count[brand] += 1 
+        
+    # 2. สร้างส่วนหัวรายงาน
+    report_content = []
+    report_content.append("Detailed Rental Summary Report")
+    report_content.append(f"Generated At : {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    report_content.append(f"Endianness   : Little-Endian")
+    report_content.append(f"Time Zone    : +07:00 (Indochina Time)")
+    report_content.append("-" * 120)
+    
+    # 3. ตารางรายละเอียดสัญญาเช่า (Active Rental Detail Table)
+    
+    fields = [
+        ('Cust ID', 8), ('Name', 30), ('Car ID', 6), ('Model', 20),
+        ('Start Date', 10), ('Return Date', 10), ('Car Status', 10), ('Rented', 8)
+    ]
+    
+    header_line = ' | '.join(f"{name:<{length}}" for name, length in fields)
+    report_content.append("ACTIVE RENTAL AGREEMENTS DETAIL:")
+    report_content.append(header_line)
+    report_content.append("-" * (sum(length for _, length in fields) + len(fields) * 3))
+
+    if active_rentals:
+        for rent in active_rentals:
+            
+            # ดึงข้อมูล Customer และ Car อย่างปลอดภัย (แก้ไขจุดที่อาจเกิดปัญหา Car ID)
+            cust_name = cust_mgr.get_record_by_id(rent['CustomerID'])[0]['Name'] if cust_mgr.get_record_by_id(rent['CustomerID']) else "N/A (Deleted)"
+
+            car_result = car_mgr.get_record_by_id(rent['CarID'])
+            
+            # 🟢 แก้ไขการดึงข้อมูลรถยนต์: ใช้ค่า Default เมื่อไม่พบ
+            car_data = car_result[0] if car_result else {'Model': "N/A (Invalid)", 'IsActive': False}
+            
+            car_model = car_data['Model']
+            car_is_active = car_data['IsActive']
+            car_status_text = 'Active' if car_is_active else 'Inactive'
+            
+            # คำนวณวันที่ต้องคืน
+            try:
+                start_date_str = str(rent['StartDate']).zfill(8)
+                start_date = datetime.datetime.strptime(start_date_str, '%d%m%Y')
+                return_date = start_date + datetime.timedelta(days=rent['Days'])
+                return_date_str = return_date.strftime('%d%m%Y')
+            except ValueError:
+                return_date_str = "Invalid"
+
+            line_parts = [
+                f"{rent['CustomerID']:<8}",
+                f"{cust_name:<30}",
+                f"{rent['CarID']:<6}",
+                f"{car_model:<20}",
+                f"{rent['StartDate']:<10}",
+                f"{return_date_str:<10}",
+                f"{car_status_text:<10}",
+                f"{'Yes':<8}"
+            ]
+
+            report_content.append(' | '.join(line_parts))
+    else:
+        report_content.append("No active rental agreements found.")
+        
+    report_content.append("=" * 120)
+
+    # 4. Summary และ Statistics
+    report_content.append("\nSummary (ภาพรวมสถานะ Active)")
+    report_content.append(f"- Total Cars (records) : {total_cars}")
+    report_content.append(f"- Active Cars          : {len(active_cars)}")
+    report_content.append(f"- Deleted Cars         : {deleted_cars}")
+    report_content.append(f"- Currently Rented     : {currently_rented}")
+    report_content.append(f"- Available Now        : {available_now}")
+    
+    report_content.append("\nRate Statistics (THB/day, Active only)")
+    report_content.append(f"- Min : {min_rate:,.2f}")
+    report_content.append(f"- Max : {max_rate:,.2f}")
+    report_content.append(f"- Avg : {avg_rate:,.2f}")
+    
+    report_content.append("\nCars by Model (Active only)")
+    if model_count:
+        for model, count in sorted(model_count.items()):
+            report_content.append(f"- {model} : {count}")
+    else:
+        report_content.append("No active models found.")
+    
+    report_content.append("\n" + "=" * 120)
+    
+    # 5. เขียนไฟล์
+    try:
+        with open(report_filename, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(report_content) + '\n')
+        print(f"\n📄 รายงานสรุปละเอียดถูกสร้างสำเร็จที่ '{report_filename}'.")
+    except IOError as e:
+        print(f"❌ Error writing report file: {e}")
 
 # ==============================================================================
 # 6. ฟังก์ชัน Main
@@ -569,7 +709,6 @@ def run_rental_menu(manager: RentalManager, car_mgr: CarManager, cust_mgr: Custo
 
 def main():
     print("🚀 เริ่มต้นระบบจัดการฐานข้อมูลเช่ารถยนต์...")
-    # 1. Initialize Managers
     car_mgr = CarManager()
     cust_mgr = CustomerManager()
     rental_mgr = RentalManager()
@@ -582,9 +721,10 @@ def main():
             print("[1] จัดการข้อมูลรถยนต์")
             print("[2] จัดการข้อมูลลูกค้า")
             print("[3] จัดการสัญญาเช่า")
+            print("[R] สร้างรายงานสรุปละเอียดทั้งหมด (.txt)") # 🟢 อัปเดตข้อความเมนู
             print("[X] ออกจากระบบ (ปิดไฟล์)")
 
-            main_choice = get_user_choice(">> กรุณาเลือกเมนู: ", ['1', '2', '3', 'X'])
+            main_choice = get_user_choice(">> กรุณาเลือกเมนู: ", ['1', '2', '3', 'R', 'X']) 
 
             if main_choice == '1':
                 run_car_menu(car_mgr)
@@ -592,16 +732,24 @@ def main():
                 run_customer_menu(cust_mgr)
             elif main_choice == '3':
                 run_rental_menu(rental_mgr, car_mgr, cust_mgr)
+            
+            # 📌 แก้ไขให้เรียกใช้ฟังก์ชันใหม่
+            elif main_choice == 'R':
+                generate_detailed_summary_report(
+                    rental_mgr, 
+                    cust_mgr, 
+                    car_mgr, 
+                    report_filename='detailed_summary_report.txt'
+                )
+            
             elif main_choice == 'X':
                 print("\nปิดระบบและบันทึกข้อมูลทั้งหมด...")
                 break
-                
-    except Exception as e:
-        # ดักจับข้อผิดพลาดที่ไม่คาดคิดทั้งหมด
-        print(f"\n❌ เกิดข้อผิดพลาด: {e}")
         
+    except Exception as e:
+        print(f"\n❌ เกิดข้อผิดพลาดร้ายแรง: {e}")
+            
     finally:
-        # 2. Close Files Safely (ส่วนนี้จะทำงานเสมอ ไม่ว่าจะเกิดข้อผิดพลาดหรือไม่)
         print("💾 กำลังปิดไฟล์ทั้งหมด...")
         car_mgr.close()
         cust_mgr.close()
